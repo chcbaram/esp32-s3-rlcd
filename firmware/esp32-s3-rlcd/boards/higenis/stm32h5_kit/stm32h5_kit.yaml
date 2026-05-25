@@ -1,0 +1,13 @@
+identifier: stm32h5_kit
+name: STM32H5-KIT
+type: mcu
+arch: arm
+toolchain:
+  - zephyr
+  - gnuarmemb
+ram: 256
+flash: 2048
+supported:
+  - uart
+  - gpio
+vendor: higenis

@@ -1,0 +1,84 @@
+/*
+ * Copyright (c) 2021 Linaro Limited
+ * Copyright (c) 2023 Thomas Stranger
+ *
+ * SPDX-License-Identifier: Apache-2.0
+ */
+ 
+/dts-v1/;
+#include <st/h5/stm32h563Xi.dtsi>
+#include <st/h5/stm32h563vitx-pinctrl.dtsi>
+#include <zephyr/dt-bindings/input/input-event-codes.h>
+
+/ {
+	model = "STM32H5-KIT";
+	compatible = "st,stm32h5_kit";
+
+	#address-cells = <1>;
+	#size-cells = <1>;
+
+	chosen {
+		zephyr,sram = &sram0;
+		zephyr,flash = &flash0;
+    zephyr,code-partition = &boot_partition;
+		zephyr,sram = &sram1;
+	};
+
+};
+
+&clk_hse {
+	clock-frequency = <DT_FREQ_M(25)>;
+	status = "okay";
+};
+
+&clk_hsi48 {
+	status = "okay";
+};
+
+&clk_lse {
+	status = "okay";
+};
+
+&pll {
+	div-m = <2>;
+	mul-n = <40>;
+	div-p = <2>;
+	div-q = <2>;
+	div-r = <2>;
+	clocks = <&clk_hse>;
+	status = "okay";
+};
+
+
+&rcc {
+	clocks = <&pll>;
+	clock-frequency = <DT_FREQ_M(250)>;
+	ahb-prescaler = <1>;
+	apb1-prescaler = <1>;
+	apb2-prescaler = <1>;
+	apb3-prescaler = <1>;
+};
+
+
+&flash0 {
+	partitions {
+		compatible = "fixed-partitions";
+		#address-cells = <1>;
+		#size-cells = <1>;
+
+		boot_partition: partition@0 {
+			label = "bootloader";
+			reg = <0x00000000 DT_SIZE_K(1024)>;
+		};
+	};
+};
+
+&vref {
+	status = "okay";
+};
+
+&vbat {
+	status = "okay";
+};
+
+

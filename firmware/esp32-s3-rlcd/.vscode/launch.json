@@ -1,0 +1,18 @@
+{
+	"version": "0.2.0",
+	"configurations": [
+    {
+      "cwd": "${workspaceFolder}",
+      "executable": "build/zephyr/zephyr.elf",
+      "name": "Debug with PyOCD",
+      "request": "launch",
+      "type": "cortex-debug",
+      "serverArgs": [
+        "--target", "stm32h563vitx",     
+      ],
+      "runToEntryPoint": "main",
+      "showDevDebugOutput": "none",
+      "servertype": "pyocd"
+    }
+	]
+}

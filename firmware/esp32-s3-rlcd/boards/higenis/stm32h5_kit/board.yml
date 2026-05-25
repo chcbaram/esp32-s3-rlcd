@@ -1,0 +1,6 @@
+board:
+  name: stm32h5_kit
+  full_name: STM32H5-KIT
+  vendor: higenis
+  socs:
+    - name: stm32h563xx

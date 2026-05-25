@@ -1,0 +1,49 @@
+{
+  // See https://go.microsoft.com/fwlink/?LinkId=733558
+  // for the documentation about the tasks.json format
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "build-rebuild",
+      "type": "shell",
+      "command": [
+          "source $ZEPHYR_HOME/zephyr-4.4.0/.venv/bin/activate;",
+          "export ZEPHYR_BASE=$ZEPHYR_HOME/zephyr-4.4.0/zephyr/zephyr;",
+          "west build -p -b esp32s3_rlcd/esp32s3/procpu -- -DBOARD_ROOT=.",
+      ],
+      "problemMatcher": [],
+    },
+    {
+      "label": "build-build",
+      "type": "shell",
+      "command": [
+          "source $ZEPHYR_HOME/zephyr-4.4.0/.venv/bin/activate;",
+          "export ZEPHYR_BASE=$ZEPHYR_HOME/zephyr-4.4.0/zephyr/zephyr;",
+          "west build -b esp32s3_rlcd/esp32s3/procpu  -- -DBOARD_ROOT=.",
+      ],
+      "problemMatcher": [],
+      "group": {
+        "kind": "build",
+        "isDefault": true
+      }
+    },
+    {
+      "label": "download-usb",
+      "type": "shell",
+      "command": [
+          "source $ZEPHYR_HOME/zephyr-4.4.0/.venv/bin/activate;",
+          "export ZEPHYR_BASE=$ZEPHYR_HOME/zephyr-4.4.0/zephyr/zephyr;",
+          "west flash",
+      ]
+    },
+    {
+      "label": "download-monitor",
+      "type": "shell",
+      "command": [
+          "source $ZEPHYR_HOME/zephyr-4.4.0/.venv/bin/activate;",
+          "export ZEPHYR_BASE=$ZEPHYR_HOME/zephyr-4.4.0/zephyr/zephyr;",
+          "west espressif monitor",
+      ]
+    }      
+  ]
+}
