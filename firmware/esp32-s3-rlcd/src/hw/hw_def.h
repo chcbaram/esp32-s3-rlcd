@@ -19,8 +19,9 @@
 // #define      HW_LED_MAX_CH          1
 
 #define _USE_HW_UART
-#define      HW_UART_MAX_CH         1
+#define      HW_UART_MAX_CH         2
 #define      HW_UART_CH_USB         _DEF_UART1
+#define      HW_UART_CH_NET         _DEF_UART2
 #define      HW_UART_CH_CLI         HW_UART_CH_USB
 
 #define _USE_HW_LOG

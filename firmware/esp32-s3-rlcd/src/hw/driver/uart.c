@@ -26,10 +26,10 @@ typedef struct
 
 typedef struct
 {
-  const char         *p_msg;
-  bool                is_rs485;
+  const char    *p_msg;
+  bool           is_rs485;
+  uart_driver_t *p_driver;
 } uart_hw_t;
-
 
 
 #if CLI_USE(HW_UART)
@@ -43,9 +43,10 @@ static bool is_init = false;
 static uart_tbl_t uart_tbl[UART_MAX_CH];
 static uint8_t    console_rx_buf[UART_RX_BUF_LENGTH];
 
-const static uart_hw_t uart_hw_tbl[UART_MAX_CH] = 
+static uart_hw_t uart_hw_tbl[UART_MAX_CH] = 
   {
-    {"usb   ", false},
+    {"USB     ", false, NULL},
+    {"CLI NET ", false, NULL},
   };
 
 
@@ -77,6 +78,15 @@ bool uartInit(void)
 #if CLI_USE(HW_UART)
   cliAdd("uart", cliUart);
 #endif
+  return true;
+}
+
+bool uartSetDriver(uint8_t ch, uart_driver_t *p_driver)
+{
+  if (ch >= UART_MAX_CH)
+    return false;
+
+  uart_hw_tbl[ch].p_driver = p_driver;
   return true;
 }
 
@@ -134,6 +144,13 @@ bool uartOpen(uint8_t ch, uint32_t baud)
     return true;
   }
 
+  if (uart_hw_tbl[ch].p_driver != NULL)
+  {
+    ret                  = uart_hw_tbl[ch].p_driver->open(baud);
+    uart_tbl[ch].is_open = ret;
+    uart_tbl[ch].baud    = baud;
+    return ret;
+  }    
 
   switch(ch)
   {
@@ -160,6 +177,11 @@ bool uartClose(uint8_t ch)
 
   uart_tbl[ch].is_open = false;
 
+  if (uart_hw_tbl[ch].p_driver != NULL)
+  {
+    uart_hw_tbl[ch].p_driver->close();
+  }
+
   return true;
 }
 
@@ -183,6 +205,12 @@ uint32_t uartAvailable(uint8_t ch)
 {
   uint32_t ret = 0;
 
+
+  if (uart_hw_tbl[ch].p_driver != NULL)
+  {
+    ret = uart_hw_tbl[ch].p_driver->available();
+    return ret;
+  }
 
   switch(ch)
   {
@@ -217,6 +245,12 @@ uint8_t uartRead(uint8_t ch)
   uint8_t ret = 0;
 
 
+  if (uart_hw_tbl[ch].p_driver != NULL)
+  {
+    ret = uart_hw_tbl[ch].p_driver->read();
+    return ret;
+  }
+
   switch(ch)
   {
     case _DEF_UART1:
@@ -235,6 +269,12 @@ uint32_t uartWrite(uint8_t ch, uint8_t *p_data, uint32_t length)
 {
   uint32_t ret = 0;
 
+
+  if (uart_hw_tbl[ch].p_driver != NULL)
+  {
+    ret = uart_hw_tbl[ch].p_driver->write(p_data, length);
+    return ret;
+  }
 
   switch(ch)
   {
