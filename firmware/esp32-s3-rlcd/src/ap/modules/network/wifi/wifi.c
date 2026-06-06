@@ -12,8 +12,11 @@
 #include <zephyr/posix/arpa/inet.h>
 #include <zephyr/posix/sys/socket.h>
 #include <zephyr/posix/sys/time.h>
+#include <zephyr/net/sntp.h>
+
 #if defined(CONFIG_WIFI_ESP32)
-#include <esp_wifi.h> // ESP-IDF 네이티브 Wi-Fi 헤더 직접 참조
+#include <esp_err.h>
+#include <esp_wifi.h> 
 #endif
 
 #define CONFIG_ESP_WIFI_SSID     ""
@@ -28,6 +31,15 @@ typedef struct
   char dest_ip[128];
   int  dest_port;
 } wifi_nvs_t;
+
+static void wifiThread(void *p1, void *p2, void *p3);
+static bool wifiConfigLoad(void);
+static bool wifiConfigSave(void);
+static void cliCmd(cli_args_t *args);
+static int  wifiSettingsSet(const char *name, size_t len, settings_read_cb readCb, void *cbArg);
+static void wifiMgmtEventHandler(struct net_mgmt_event_callback *cb, uint64_t mgmtEvent, struct net_if *iface);
+static void ipMgmtEventHandler(struct net_mgmt_event_callback *cb, uint64_t mgmtEvent, struct net_if *iface);
+static void syncTimeSNTP(void);
 
 K_THREAD_STACK_DEFINE(wifi_thread_stack, 2048);
 static struct k_thread wifi_thread_data;
@@ -51,6 +63,12 @@ static wifi_nvs_t wifi_nvs =
   .dest_port = 50000,
 };
 
+static struct settings_handler wifiSettingsConf = 
+{
+  .name  = "wifi",
+  .h_set = wifiSettingsSet,
+};
+
 MODULE_DEF(wifi) 
 {
   .name = "wifi",
@@ -58,13 +76,34 @@ MODULE_DEF(wifi)
   .init = wifiInit
 };
 
-static void wifiThread(void *p1, void *p2, void *p3);
-static bool wifiConfigLoad(void);
-static bool wifiConfigSave(void);
-static void cliCmd(cli_args_t *args);
+
+
+bool wifiInit(void)
+{
+  k_sem_init(&wifi_connected_sem, 0, 1);
+  k_sem_init(&ip_obtained_sem, 0, 1);
+
+  setenv("TZ", "KST-9", 1);
+  tzset();
+  
+  if (settings_subsys_init() == 0)
+  {
+    settings_register(&wifiSettingsConf);
+    wifiConfigLoad();
+  }
+
+  k_thread_create(&wifi_thread_data, wifi_thread_stack,
+                  K_THREAD_STACK_SIZEOF(wifi_thread_stack),
+                  wifiThread, NULL, NULL, NULL,
+                  7, 0, K_NO_WAIT);
+
+  printk("[OK] wifiInit\n");
+  cliAdd("wifi", cliCmd);
+  return true;
+}
 
 // Settings 서브시스템 콜백
-static int wifi_settings_set(const char *name, size_t len, settings_read_cb read_cb, void *cb_arg)
+static int wifiSettingsSet(const char *name, size_t len, settings_read_cb read_cb, void *cb_arg)
 {
   const char *next;
   if (settings_name_steq(name, "config", &next) && !next)
@@ -78,12 +117,8 @@ static int wifi_settings_set(const char *name, size_t len, settings_read_cb read
   return -ENOENT;
 }
 
-static struct settings_handler wifi_settings_conf = {
-  .name  = "wifi",
-  .h_set = wifi_settings_set};
-
 // Wi-Fi L2 연결 핸들러
-static void wifi_mgmt_event_handler(struct net_mgmt_event_callback *cb, uint64_t mgmt_event, struct net_if *iface)
+static void wifiMgmtEventHandler(struct net_mgmt_event_callback *cb, uint64_t mgmt_event, struct net_if *iface)
 {
   if (mgmt_event == NET_EVENT_WIFI_CONNECT_RESULT)
   {
@@ -106,7 +141,7 @@ static void wifi_mgmt_event_handler(struct net_mgmt_event_callback *cb, uint64_t
 }
 
 // DHCP IP 할당 핸들러
-static void ip_mgmt_event_handler(struct net_mgmt_event_callback *cb, uint64_t mgmt_event, struct net_if *iface)
+static void ipMgmtEventHandler(struct net_mgmt_event_callback *cb, uint64_t mgmt_event, struct net_if *iface)
 {
   if (mgmt_event == NET_EVENT_IPV4_DHCP_BOUND)
   {
@@ -117,33 +152,12 @@ static void ip_mgmt_event_handler(struct net_mgmt_event_callback *cb, uint64_t m
   }
 }
 
-bool wifiInit(void)
-{
-  k_sem_init(&wifi_connected_sem, 0, 1);
-  k_sem_init(&ip_obtained_sem, 0, 1);
-
-  if (settings_subsys_init() == 0)
-  {
-    settings_register(&wifi_settings_conf);
-    wifiConfigLoad();
-  }
-
-  k_thread_create(&wifi_thread_data, wifi_thread_stack,
-                  K_THREAD_STACK_SIZEOF(wifi_thread_stack),
-                  wifiThread, NULL, NULL, NULL,
-                  7, 0, K_NO_WAIT);
-
-  printk("[OK] wifiInit\n");
-  cliAdd("wifi", cliCmd);
-  return true;
-}
-
 bool wifiInitSTA(void)
 {
-  net_mgmt_init_event_callback(&wifi_cb, wifi_mgmt_event_handler, NET_EVENT_WIFI_CONNECT_RESULT | NET_EVENT_WIFI_DISCONNECT_RESULT);
+  net_mgmt_init_event_callback(&wifi_cb, wifiMgmtEventHandler, NET_EVENT_WIFI_CONNECT_RESULT | NET_EVENT_WIFI_DISCONNECT_RESULT);
   net_mgmt_add_event_callback(&wifi_cb);
 
-  net_mgmt_init_event_callback(&dhcp_cb, ip_mgmt_event_handler, NET_EVENT_IPV4_DHCP_BOUND);
+  net_mgmt_init_event_callback(&dhcp_cb, ipMgmtEventHandler, NET_EVENT_IPV4_DHCP_BOUND);
   net_mgmt_add_event_callback(&dhcp_cb);
 
   struct net_if *iface = net_if_get_default();
@@ -162,7 +176,7 @@ bool wifiInitSTA(void)
     .security    = WIFI_SECURITY_TYPE_PSK,
   };
 
-  printk("Connecting to AP SSID: %s...\n", wifi_nvs.wifi_ssid);
+  printk("[  ] Connecting to AP SSID: %s...\n", wifi_nvs.wifi_ssid);
 
   int ret = net_mgmt(NET_REQUEST_WIFI_CONNECT, iface, &c_params, sizeof(struct wifi_connect_req_params));
   if (ret)
@@ -188,11 +202,83 @@ bool wifiInitSTA(void)
   {
     if (k_sem_take(&ip_obtained_sem, K_MSEC(15000)) == 0)
     {
+      // DHCP IP 바인딩이 성공 완료된 시점에 SNTP 서버 요청 연동
+      syncTimeSNTP();      
       return true;
     }
   }
 
   return false;
+}
+
+static void syncTimeSNTP(void)
+{
+  struct sntp_ctx  ctx;
+  struct sntp_time sntpTm;
+  const char      *ntpServer = "kr.pool.ntp.org";
+
+  struct zsock_addrinfo hints = {
+    .ai_family   = AF_INET,
+    .ai_socktype = SOCK_DGRAM,
+    .ai_protocol = IPPROTO_UDP,
+  };
+  struct zsock_addrinfo *res;
+
+  printk("[  ] Resolving NTP server DNS -> %s\n", ntpServer);
+
+  // 1. 도메인 문자열을 구조체 주소 규격으로 변환하기 위해 DNS 쿼리 수행
+  int dnsRet = zsock_getaddrinfo(ntpServer, "123", &hints, &res);
+  if (dnsRet != 0)
+  {
+    printk("[E_] DNS resolution failed for %s (err: %d)\n", ntpServer, dnsRet);
+    return;
+  }
+
+  printk("[  ] Initializing SNTP context...\n");
+
+  // 2. Zephyr v4.4.0 규격: 파싱된 sockaddr 구조체 주소를 직접 전달 (인자는 총 3개)
+  int ret = sntp_init(&ctx, res->ai_addr, res->ai_addrlen);
+  if (ret < 0)
+  {
+    printk("[E_] Failed to initialize SNTP context (err: %d)\n", ret);
+    zsock_freeaddrinfo(res);
+    return;
+  }
+
+  printk("[  ] Sending SNTP query...\n");
+
+  // 3. Zephyr v4.4.0 규격: timeout에 K_MSEC()이 아닌 정수형 밀리초(4000) 바로 기입
+  ret = sntp_query(&ctx, 4000, &sntpTm);
+
+  // 사용이 끝난 DNS 메모리는 즉시 해제
+  zsock_freeaddrinfo(res);
+
+  if (ret < 0)
+  {
+    printk("[E_] SNTP query failed (err: %d)\n", ret);
+    return;
+  }
+
+  // 4. POSIX 시스템 타임스탬프 셋 주입
+  // fraction 비트를 나노초(ns) 규격 범위(0 ~ 999,999,999) 내로 안전하게 스케일링 변환
+  struct timespec ts = {
+    .tv_sec  = sntpTm.seconds,
+    .tv_nsec = ((uint64_t)sntpTm.fraction * 1000000000LL) >> 32};
+
+  // 만약 위 스케일링 연산 후에도 미세하게 범위를 초과할 경우를 대비한 방어 코드
+  if (ts.tv_nsec >= 1000000000LL)
+  {
+    ts.tv_nsec = 0;
+  }
+
+  if (clock_settime(CLOCK_REALTIME, &ts) == 0)
+  {
+    printk("[OK] Network time synchronization success! (Epoch: %lld)\n", (long long)ts.tv_sec);
+  }
+  else
+  {
+    printk("[E_] Failed to set POSIX system clock (errno: %d, nsec: %ld)\n", errno, ts.tv_nsec);
+  }
 }
 
 bool wifiConfigLoad(void)
@@ -290,6 +376,50 @@ void cliCmd(cli_args_t *args)
     ret = true;
   }
 
+  if (args->argc == 1 && args->isStr(0, "time"))
+  {
+    // struct timespec ts;
+    // clock_gettime(CLOCK_REALTIME, &ts);
+    // cliPrintf("Current Epoch Time: %lld\n", (long long)ts.tv_sec);
+
+    while (cliKeepLoop())
+    {
+      struct timespec ts;
+      clock_gettime(CLOCK_REALTIME, &ts);
+
+      // Epoch 단위를 구조체 broken-down time(년, 월, 일, 시, 분, 초)으로 변환
+      struct tm tmRef;
+      localtime_r(&ts.tv_sec, &tmRef); 
+
+      // 디스플레이 포맷팅 (YYYY-MM-DD HH:MM:SS)
+      cliPrintf("[%04d-%02d-%02d %02d:%02d:%02d] (Epoch: %lld)\r",
+                tmRef.tm_year + 1900,
+                tmRef.tm_mon + 1,
+                tmRef.tm_mday,
+                tmRef.tm_hour,
+                tmRef.tm_min,
+                tmRef.tm_sec,
+                (long long)ts.tv_sec);
+
+      delay(1000);
+    }
+    ret = true;
+  }
+
+  if (args->argc == 1 && args->isStr(0, "sntp"))
+  {
+    if (wifiIsConnected())
+    {
+      cliPrintf("Triggering manual SNTP time synchronization...\n");
+      syncTimeSNTP();
+    }
+    else
+    {
+      cliPrintf("[E_] Wi-Fi is not connected. Connect to AP first.\n");
+    }
+    ret = true;
+  }
+
   if (args->argc == 1 && args->isStr(0, "reset"))
   {
     sys_reboot(SYS_REBOOT_WARM);
@@ -335,6 +465,8 @@ void cliCmd(cli_args_t *args)
   {
     cliPrintf("wifi info\n");
     cliPrintf("wifi reset\n");
+    cliPrintf("wifi time\n");
+    cliPrintf("wifi sntp\n");    
     cliPrintf("wifi name [name]\n");
     cliPrintf("wifi ssid [ssid]\n");
     cliPrintf("wifi pass [pass]\n");
