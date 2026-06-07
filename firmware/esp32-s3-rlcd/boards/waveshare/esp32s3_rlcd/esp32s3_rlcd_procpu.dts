@@ -74,7 +74,7 @@
 			status = "okay";
 			compatible = "sitronix,st7306";
 			reg = <0>;
-			mipi-max-frequency = <10000000>;
+			mipi-max-frequency = <20000000>;
 			mipi-mode = "MIPI_DBI_MODE_SPI_4WIRE";
 			width = <312>;
 			height = <400>;
@@ -91,10 +91,10 @@
 			multiplex-ratio = <0x64>;
 			source-voltage = <0x00>;
 			remap-value = <0x48>;
-			panel-settings = <0x28>;
+			panel-settings = <0x29>;
 			hpm-gate-waveform = [e5 f6 05 46 77 77 77 77 76 45];
 			lpm-gate-waveform = [05 46 77 77 77 77 76 45];
-			// inversion-on;
+			// inversion-on;      
 		};
 	};
 };
