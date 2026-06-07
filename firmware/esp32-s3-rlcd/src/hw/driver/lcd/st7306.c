@@ -71,7 +71,6 @@ bool st7306Reset(void)
   desc.height   = ST7306_HEIGHT;
   desc.pitch    = ST7306_WIDTH;
 
-  
   st7306Fill(black);
 
   display_blanking_off(display_dev);
@@ -93,7 +92,7 @@ uint16_t st7306GetHeight(void)
   return LCD_HEIGHT;
 }
 
-#if 1
+#if 0
 bool st7306SendBuffer(uint8_t *p_data, uint32_t length, uint32_t timeout_ms)
 {
   if (p_data == NULL)
@@ -155,59 +154,55 @@ bool st7306SendBuffer(uint8_t *p_data, uint32_t length, uint32_t timeout_ms)
 
   uint16_t *p_rgb_buf = (uint16_t *)p_data;
 
-  /* * [주의] Green 스킵(기존 픽셀 유지)을 구현하기 위해
-   * 매번 버퍼 전체를 0으로 미는 memset(mono_transfer_buffer, 0, ...)은 제외합니다.
-   * 만약 완전히 새로운 프레임을 그리는 구조라면 lcd.c에서 배경을 먼저 그려서 보내야 합니다.
+  /* * 상위 레이어의 입력 원본 이미지 크기(LCD_WIDTH x LCD_HEIGHT)를 기준으로 루프를 돕니다.
+   * 예: 원본이 가로 312, 세로 400이라면 y는 400까지, x는 312까지 돕니다.
    */
-
-  for (uint32_t y = 0; y < ST7306_HEIGHT; y++)
+  for (uint32_t y = 0; y < LCD_HEIGHT; y++)
   {
-    for (uint32_t x = 0; x < ST7306_WIDTH; x++)
+    for (uint32_t x = 0; x < LCD_WIDTH; x++)
     {
-      // 1. 원본 RGB565 버퍼의 1차원 인덱스 및 색상 추출
+      // 1. 원본 RGB565 인덱스 매핑 및 Green 패스
       uint32_t src_idx = (y * LCD_WIDTH) + x;
-      uint16_t rgb     = p_rgb_buf[src_idx];
+      uint16_t rgb = p_rgb_buf[src_idx];
 
-      /* * [조건 1] Green 색상(0x07E0)이면 해당 픽셀은 건너뜁니다.
-       * (모노크롬 버퍼의 해당 위치 값을 업데이트하지 않고 유지)
-       */
-      if (rgb == green)
-      {
-        continue;
-      }
 
-      /* * [조건 3] 0과 0이 아닌 것으로만 흑백 처리
-       * 기존의 색상 반전 규칙을 유지합니다:
-       * 0(Black)이 들어오면 -> 화이트(1)로 팩킹
-       * 0이 아닌 값(기타 컬러) -> 블랙(0)으로 팩킹
-       */
-      uint8_t bit_val = (rgb == 0) ? 1 : 0;
+      // 2. 이진화 및 색상 반전 논리 (기존 논리 반영: 0일 때 0(블랙), 0이 아니면 1(화이트))
+      uint8_t bit_val = (rgb == 0) ? 0 : 1;
 
-      /* * [조건 2] 90도 시계 방향 회전 좌표 계산
-       * New_X = Height - 1 - Old_Y
-       * New_Y = Old_X
+      /* * 3. [90도 시계 방향 회전 좌표 변환]
+       * rot_x: 회전 후의 가로 좌표 (0 ~ LCD_HEIGHT - 1)
+       * rot_y: 회전 후의 세로 좌표 (0 ~ LCD_WIDTH - 1)
        */
-      uint32_t rot_x = ST7306_HEIGHT - 1 - y;
+      uint32_t rot_x = LCD_HEIGHT - 1 - y;
       uint32_t rot_y = x;
 
-      // 회전된 화면 기준 가로폭(ST7306_HEIGHT)으로 1차원 비트 인덱스 계산
-      uint32_t dest_pixel_idx = (rot_y * ST7306_HEIGHT) + rot_x;
+      /* * 4. [회전 기준 인덱스 및 비트 계산]
+       * 화면을 돌렸기 때문에, 새로운 가로 한 줄의 바이트 수 규격은 
+       * 원본 가로폭이 아니라 "회전된 가로폭" 즉, 기존의 'ST7306_BYTES_PER_LINE' 또는 'LCD_HEIGHT 기준 바이트 수'가 됩니다.
+       * * 여기서는 하드웨어의 가로폭 규격에 맞춰 정의된 ST7306_BYTES_PER_LINE을 축으로 계산합니다.
+       */
+      uint32_t byte_idx = (rot_y * ST7306_BYTES_PER_LINE) + (rot_x / 8);      
+      
+      /* 피드백해주신 LSB-First 구조 (가장 왼쪽 픽셀이 Bit 0) 반영 */
+      uint8_t  bit_idx  = (rot_x % 8); 
 
-      uint32_t byte_idx = dest_pixel_idx / 8;
-      uint8_t  bit_idx  = 7 - (dest_pixel_idx % 8);
-
-      // 비트 업데이트 (0 혹은 1로 확실하게 덮어쓰기)
-      if (bit_val)
+      // 5. 비트 세팅 (Overwrite)
+      if (bit_val) 
       {
-        mono_transfer_buffer[byte_idx] |= (1 << bit_idx);  // 화이트 세팅
+        mono_transfer_buffer[byte_idx] |= (1 << bit_idx);
       }
-      else
+      else 
       {
-        mono_transfer_buffer[byte_idx] &= ~(1 << bit_idx); // 블랙 세팅
+        mono_transfer_buffer[byte_idx] &= ~(1 << bit_idx);
       }
     }
   }
 
+  /* 6. Zephyr 드라이버 전송 디스크립터
+   * 이미 하드웨어 디바이스 트리와 st7306Init 등에서 회전된 해상도를 인지하도록 
+   * 전역 desc가 가로 400, 세로 312(혹은 세로 300) 구조로 세팅되어 있다면 
+   * 이 전역 desc를 그대로 던지면 됩니다.
+   */
   int ret = display_write(display_dev, 0, 0, &desc, mono_transfer_buffer);
   if (ret != 0)
   {
@@ -231,38 +226,20 @@ bool st7306SetCallBack(void (*p_func)(void))
 
 void st7306Fill(uint16_t color)
 {
-  /* * 어차피 흑백이므로 컬러 값이 0(Black)이면 0x00으로,
-   * 0이 아닌 모든 값(White 또는 기타 컬러)은 0xFF로 버퍼를 채웁니다.
-   */
   if (color != 0)
   {
-    // 1비트 버퍼의 모든 비트를 1로 채움 (White)
     memset(mono_transfer_buffer, 0xFF, sizeof(mono_transfer_buffer));
   }
   else
   {
-    // 1비트 버퍼의 모든 비트를 0으로 채움 (Black)
     memset(mono_transfer_buffer, 0x00, sizeof(mono_transfer_buffer));
   }
 
-  for (int i=0; i<10; i++)
-  {
-    mono_transfer_buffer[i] = 0xFF;
-  }
-
-  for (int i=0; i<10; i++)
-  {
-    mono_transfer_buffer[ST7306_BYTES_PER_LINE * 2 + i] = 0xFF;
-  }
-
-  /* Zephyr 표준 API를 호출해 하드웨어로 즉시 전송 */
   int ret = display_write(display_dev, 0, 0, &desc, mono_transfer_buffer);
   if (ret != 0)
   {
-    // 필요 시 에러 로깅 추가
   }
 
-  /* 상위 파이프라인 콜백 처리 */
   if (frameCallBack != NULL)
   {
     frameCallBack();

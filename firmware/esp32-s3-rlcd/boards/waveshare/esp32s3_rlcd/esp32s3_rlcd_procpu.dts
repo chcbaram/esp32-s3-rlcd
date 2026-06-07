@@ -91,7 +91,7 @@
 			multiplex-ratio = <0x64>;
 			source-voltage = <0x00>;
 			remap-value = <0x48>;
-			panel-settings = <0x29>;
+			panel-settings = <0x28>;
 			hpm-gate-waveform = [e5 f6 05 46 77 77 77 77 76 45];
 			lpm-gate-waveform = [05 46 77 77 77 77 76 45];
 			// inversion-on;
