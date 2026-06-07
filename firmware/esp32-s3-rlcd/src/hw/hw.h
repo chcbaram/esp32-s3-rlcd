@@ -17,6 +17,8 @@ extern "C" {
 #include "sd.h"
 #include "fatfs.h"
 #include "files.h"
+#include "adc.h"
+#include "battery.h"
 
 bool hwInit(void);
 

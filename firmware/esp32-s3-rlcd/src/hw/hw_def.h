@@ -16,7 +16,7 @@
 #define _USE_HW_SD
 #define _USE_HW_FATFS
 #define _USE_HW_FILES
-
+#define _USE_HW_BATTERY
 
 // #define _USE_HW_LED
 // #define      HW_LED_MAX_CH          1
@@ -45,6 +45,9 @@
 #define _USE_HW_BUTTON
 #define      HW_BUTTON_MAX_CH       BUTTON_PIN_MAX
 
+#define _USE_HW_ADC                 
+#define      HW_ADC_MAX_CH          ADC_PIN_MAX
+
 
 //-- CLI
 //
@@ -52,14 +55,16 @@
 #define _USE_CLI_HW_BUTTON          1
 #define _USE_CLI_HW_SD              1
 #define _USE_CLI_HW_FATFS           1
+#define _USE_CLI_HW_ADC             1
 
 
 #define _HW_DEF_RTOS_THREAD_PRI_CLI           5
 #define _HW_DEF_RTOS_THREAD_PRI_UART          5
+#define _HW_DEF_RTOS_THREAD_PRI_BATTERY       5
 
 #define _HW_DEF_RTOS_THREAD_MEM_CLI           (6*1024)
 #define _HW_DEF_RTOS_THREAD_MEM_UART          (2*1024)
-
+#define _HW_DEF_RTOS_THREAD_MEM_BATTERY       (2*1024)
 
 typedef enum
 {
@@ -67,5 +72,11 @@ typedef enum
   BTN_R,
   BUTTON_PIN_MAX,  
 } ButtonPinName_t;
+
+typedef enum
+{
+  BAT_ADC = 0,
+  ADC_PIN_MAX
+} AdcPinName_t;
 
 #endif

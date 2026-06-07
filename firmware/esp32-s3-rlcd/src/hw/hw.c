@@ -24,9 +24,11 @@ bool hwInit(void)
   logPrintf("Booting..Time \t\t: %s\r\n", __TIME__);   
 
   buttonInit();
-
+  adcInit();
+  batteryInit();
+  
   sdInit();
   fatfsInit();
-  
+
   return true;
 }
