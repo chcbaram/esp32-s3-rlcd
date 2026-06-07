@@ -74,15 +74,16 @@ void drawStatusBar(const char *p_title)
     localtime_r(&ts.tv_sec, &tm_ref);
 
     // 오른쪽 끝 정렬을 위한 X 좌표 계산 (약 11글자 분량 여백 확보)
-    int time_x_pos = LCD_WIDTH - 95;
+    int time_x_pos = LCD_WIDTH - 95 - 24;
     if (time_x_pos < 60) time_x_pos = 140;
 
     // wifi.c의 포맷 규격을 활용하여 "MM-DD HH:MM" 형태로 출력
-    lcdPrintf(time_x_pos, 3, black, "%02d-%02d %02d:%02d",
+    lcdPrintf(time_x_pos, 3, black, "%02d-%02d %02d:%02d:%02d",
               tm_ref.tm_mon + 1,
               tm_ref.tm_mday,
               tm_ref.tm_hour,
-              tm_ref.tm_min);
+              tm_ref.tm_min,
+              tm_ref.tm_sec);
   }
   else
   {
@@ -102,7 +103,7 @@ void uiThread(void const *arg)
   logPrintf("[%s] Thread Started : UI\n", init_ret ? "OK":"E_" );
 
   delay(2000);
-  
+
   while(1)
   {
     // [0번 버튼]: 메뉴 이동 (DOWN)
