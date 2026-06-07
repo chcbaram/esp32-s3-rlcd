@@ -174,7 +174,7 @@ zephyr_udc0: &usb_otg {
 		max-bus-freq = <20000000>;
 		bus-width = <1>;
 
-		mmc {
+		sdmmc {
 			compatible = "zephyr,sdmmc-disk";
 			disk-name = "SD";
 			status = "okay";

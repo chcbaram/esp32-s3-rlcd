@@ -25,6 +25,8 @@ bool hwInit(void)
 
   buttonInit();
 
+  sdInit();
+  fatfsInit();
   
   return true;
 }

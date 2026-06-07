@@ -14,6 +14,9 @@ extern "C" {
 #include "uart.h"
 #include "cli.h"
 #include "button.h"
+#include "sd.h"
+#include "fatfs.h"
+#include "files.h"
 
 bool hwInit(void);
 
