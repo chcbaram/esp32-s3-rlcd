@@ -13,6 +13,10 @@
 #include <zephyr/posix/sys/socket.h>
 #include <zephyr/posix/sys/time.h>
 #include <zephyr/net/sntp.h>
+#include <zephyr/posix/sys/socket.h>
+#include <zephyr/posix/unistd.h>
+#include <zephyr/posix/sys/select.h>
+
 
 #if defined(CONFIG_WIFI_ESP32)
 #include <esp_err.h>
@@ -35,6 +39,7 @@ typedef struct
 static void wifiThread(void *p1, void *p2, void *p3);
 static bool wifiConfigLoad(void);
 static bool wifiConfigSave(void);
+static void wifiDisconnectSTA(void);
 static void cliCmd(cli_args_t *args);
 static int  wifiSettingsSet(const char *name, size_t len, settings_read_cb readCb, void *cbArg);
 static void wifiMgmtEventHandler(struct net_mgmt_event_callback *cb, uint64_t mgmtEvent, struct net_if *iface);
@@ -298,6 +303,36 @@ bool wifiIsConnected(void)
   return is_connected;
 }
 
+/**
+ * @brief Wi-Fi 연결을 명시적으로 끊고 무선 인터페이스를 정리합니다.
+ */
+static void wifiDisconnectSTA(void)
+{
+  struct net_if *iface = net_if_get_default();
+  if (!iface) return;
+
+  // 1. 기존에 생성된 소켓이 있다면 안전하게 닫기
+  if (sock >= 0)
+  {
+    close(sock);
+    sock = -1;
+  }
+
+  // 2. Zephyr Network Management에 Wi-Fi 연결 해제 요청
+  int ret = net_mgmt(NET_REQUEST_WIFI_DISCONNECT, iface, NULL, 0);
+  if (ret && ret != -EALREADY)
+  {
+    printk("[E_] Wi-Fi disconnect request failed: %d\n", ret);
+  }
+  else
+  {
+    printk("[OK] Wi-Fi Disconnect requested for power saving\n");
+  }
+
+  // L3 스태이트 강제 해제 (Event Handler에서 처리되지만 확실히 하기 위함)
+  is_connected = false;
+}
+
 // -------------------------------------------------------------------------
 // 송신 가상화 계층 (순정 BSD 호환 API 적용)
 // -------------------------------------------------------------------------
@@ -379,35 +414,57 @@ int8_t wifiGetRssi(void)
 }
 #endif
 
+/**
+ * @brief 1시간 주기로 Wi-Fi ON -> 연결 -> SNTP 동기화 -> Wi-Fi OFF를 반복하는 스레드
+ */
 void wifiThread(void *p1, void *p2, void *p3)
 {
+  // 부팅 직후 안정화를 위한 초기 딜레이
   k_msleep(1000);
-
-  is_connected = wifiInitSTA();
-
-  if (is_connected)
-  {
-    dest_addr.sin_family = AF_INET;
-    dest_addr.sin_port   = htons(wifi_nvs.dest_port);          // 순정 htons 사용
-    inet_pton(AF_INET, wifi_nvs.dest_ip, &dest_addr.sin_addr); // 순정 inet_pton 사용
-
-    // 순정 socket 생성 명령 사용
-    sock = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
-    if (sock < 0)
-    {
-      printk("[E_] Unable to create socket, errno: %d\n", errno);
-    }
-    else
-    {
-      struct timeval timeout = {.tv_sec = 10, .tv_usec = 0};                // 순정 struct timeval 사용
-      setsockopt(sock, SOL_SOCKET, SO_RCVTIMEO, &timeout, sizeof(timeout)); // 순정 setsockopt 사용
-      printk("[OK] Socket created, target -> %s:%d\n", wifi_nvs.dest_ip, wifi_nvs.dest_port);
-    }
-  }
 
   while (1)
   {
-    k_msleep(1000);
+    printk("\n[=== Wake up: Starting Hourly Wi-Fi & SNTP Sync ===]\n");
+
+    // 1. Wi-Fi 켜고 AP 연결 및 IP 할당 대기 (내부에서 syncTimeSNTP()까지 완료됨)
+    is_connected = wifiInitSTA();
+
+    if (is_connected)
+    {
+      printk("[OK] Wi-Fi Link & SNTP Sync Complete.\n");
+
+      // 2. (옵션) UDP 소켓 통신이나 필요한 무선 데이터 송수신 처리 영역
+      dest_addr.sin_family = AF_INET;
+      dest_addr.sin_port   = htons(wifi_nvs.dest_port);
+      inet_pton(AF_INET, wifi_nvs.dest_ip, &dest_addr.sin_addr);
+
+      sock = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
+      if (sock >= 0)
+      {
+        struct timeval timeout = {.tv_sec = 5, .tv_usec = 0};
+        setsockopt(sock, SOL_SOCKET, SO_RCVTIMEO, &timeout, sizeof(timeout));
+        printk("[OK] Socket opened for quick session.\n");
+
+        // 여기서 동기화 성공 여부나 배터리 상태 등을 서버로 하트비트 전송 가능
+        wifiPrintf("ESP32-S3 Synced. SoC: %d%%\n", batteryGetPercent());
+
+        // 소켓 작업이 끝나면 잠시 후 세션 닫기
+        k_msleep(500);
+      }
+    }
+    else
+    {
+      printk("[E_] Wi-Fi or SNTP Sync failed in this cycle.\n");
+    }
+
+    // 3. 무선 랜 비활성화 및 소켓 해제 (절전 모드 진입)
+    printk("[  ] Entering RF Power Saving Mode...\n");
+    wifiDisconnectSTA();
+
+    // 4. 정확히 1시간(60분) 동안 스레드를 슬립 상태로 전환
+    // Zephyr 커널은 이 스레드를 멈추고 시스템을 저전력(Tickless Idle) 모드로 유도합니다.
+    printk("[OK] Wi-Fi Sleep. Next sync in 1 hour.\n");
+    k_sleep(K_HOURS(1));
   }
 }
 

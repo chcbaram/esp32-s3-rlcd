@@ -149,47 +149,54 @@ static void drawFullClockScreen(void)
   int wifi_x = 10;
   int wifi_y = 12;
 
+  // 1시간 주기 제어이므로, 현재 '분(minute)' 정보를 통해 Sleep 유무를 판단하는 트릭을 씁니다.
+  // 보통 깨어나서 30초 내외로 동기화 후 바로 끊으므로, 0분(정각) 영역이 지나면 Sleep 상태입니다.
+  // 단, 처음부터 아예 실패했을 때(SNTP가 한 번도 안 되었을 때)는 Not Connected로 띄우는 것이 좋습니다.
+  bool is_wifi_sleeping = (is_wifi_connected == false) && (tm_ref.tm_min > 1);
+
   if (is_wifi_connected == false)
   {
-    // 연결 안 됨: 경고용 적색(red) 또는 흰색으로 메시지 출력
-    lcdPrintf(wifi_x, wifi_y + 2, red, "WiFi Not Connected");
+    if (is_wifi_sleeping)
+    {
+      // [상태 A] 정상 동기화 완료 후 전력 절감을 위해 의도적으로 눈을 감은 상태
+      int bar_w = 4;
+      int bar_g = 2;
+      
+      // 안테나 모양은 유지하되 전부 회색(gray)으로 표현하여 절전 중임을 암시
+      lcdDrawRect(wifi_x,                     wifi_y + 11, bar_w, 5,  gray);
+      lcdDrawRect(wifi_x + (bar_w+bar_g),     wifi_y + 8,  bar_w, 8,  gray);
+      lcdDrawRect(wifi_x + (bar_w+bar_g)*2,   wifi_y + 4,  bar_w, 12, gray);
+      lcdDrawRect(wifi_x + (bar_w+bar_g)*3,   wifi_y,      bar_w, 16, gray);
+
+      // 우측에 주황색(orange) 또는 옅은 흰색으로 절전 상태 텍스트 출력
+      lcdPrintf(wifi_x + 28, wifi_y + 2, white, "WiFi Sleeping...");
+    }
+    else
+    {
+      // [상태 B] 부팅 직후이거나 아예 공유기를 찾지 못해 연결이 영구 실패한 상태
+      lcdPrintf(wifi_x, wifi_y + 2, red, "WiFi Not Connected");
+    }
   }
   else
   {
-    // RSSI 수치에 따른 활성화 막대 개수 계산 (0 ~ 4개)
+    // [상태 C] 현재 실시간으로 무선 신호가 살아있고 연결된 상태
     int active_bars = 0;
-    if (wifi_rssi >= -55)
-      active_bars = 4; // 신호 매우 강함 (Full)
-    else if (wifi_rssi >= -70)
-      active_bars = 3; // 신호 강함
-    else if (wifi_rssi >= -85)
-      active_bars = 2; // 신호 약함
-    else if (wifi_rssi > -95)
-      active_bars = 1; // 신호 매우 약함
-    else
-      active_bars = 0; // 신호 없음
+    if (wifi_rssi >= -55)       active_bars = 4; 
+    else if (wifi_rssi >= -70)  active_bars = 3; 
+    else if (wifi_rssi >= -85)  active_bars = 2; 
+    else if (wifi_rssi > -95)   active_bars = 1; 
+    else                        active_bars = 0; 
 
-    int bar_w = 4;     // 막대 두께
-    int bar_g = 2;     // 막대 간격
+    int bar_w = 4;     
+    int bar_g = 2;     
 
-    // 1번 막대 (가장 낮음): active_bars가 1 이상이면 green, 아니면 gray(비활성 상태 슬롯 표시)
-    uint16_t color_b1 = (active_bars >= 1) ? green : gray;
-    lcdDrawFillRect(wifi_x, wifi_y + 11, bar_w, 5, color_b1);
+    lcdDrawFillRect(wifi_x, wifi_y + 11, bar_w, 5, (active_bars >= 1) ? green : gray);
+    lcdDrawFillRect(wifi_x + (bar_w + bar_g), wifi_y + 8, bar_w, 8, (active_bars >= 2) ? green : gray);
+    lcdDrawFillRect(wifi_x + (bar_w + bar_g) * 2, wifi_y + 4, bar_w, 12, (active_bars >= 3) ? green : gray);
+    lcdDrawFillRect(wifi_x + (bar_w + bar_g) * 3, wifi_y, bar_w, 16, (active_bars >= 4) ? green : gray);
 
-    // 2번 막대
-    uint16_t color_b2 = (active_bars >= 2) ? green : gray;
-    lcdDrawFillRect(wifi_x + (bar_w + bar_g), wifi_y + 8, bar_w, 8, color_b2);
-
-    // 3번 막대
-    uint16_t color_b3 = (active_bars >= 3) ? green : gray;
-    lcdDrawFillRect(wifi_x + (bar_w + bar_g) * 2, wifi_y + 4, bar_w, 12, color_b3);
-
-    // 4번 막대 (가장 높음)
-    uint16_t color_b4 = (active_bars >= 4) ? green : gray;
-    lcdDrawFillRect(wifi_x + (bar_w + bar_g) * 3, wifi_y, bar_w, 16, color_b4);
-
-    // 안테나 아이콘 우측에 IP 주소 연동 출력
-    lcdPrintf(wifi_x + 28, wifi_y + 2, white, "%d %s", wifi_rssi, wifi_ip);
+    // 안테나 우측에 실시간 감도 dBm과 할당 주소 일렬 출력
+    lcdPrintf(wifi_x + 28, wifi_y + 2, white, "%d dBm  %s", wifi_rssi, wifi_ip);
   }
 
   // -------------------------------------------------------------------------
