@@ -33,7 +33,7 @@
       "command": [
           "source $ZEPHYR_HOME/zephyr-4.4.0/.venv/bin/activate;",
           "export ZEPHYR_BASE=$ZEPHYR_HOME/zephyr-4.4.0/zephyr/zephyr;",
-          "west flash",
+          "west flash --esp-device ${input:port}",
       ]
     },
     {
@@ -44,6 +44,44 @@
           "export ZEPHYR_BASE=$ZEPHYR_HOME/zephyr-4.4.0/zephyr/zephyr;",
           "west espressif monitor",
       ]
-    }      
+    },
+    {
+      "label": "download-minicom",
+      "type": "shell",
+      "command": [
+          "minicom -D ${input:port}",
+      ]
+    }         
+  ],
+  "inputs": [
+    {
+      "id": "port",
+      "type": "command",
+      "command": "firmware-task.pickSerialPort"
+    },
+    {
+      "id": "baud",
+      "type": "command",
+      "command": "firmware-task.promptInput",
+      "args": {
+        "prompt": "Baud rate",
+        "value": "115200",
+        "validateRegex": "^\\d+$"
+      }
+    },
+    {
+      "id": "bin",
+      "type": "command",
+      "command": "firmware-task.pickFile",
+      "args": {
+        "filters": {
+          "Firmware": [
+            "bin",
+            "hex",
+            "elf"
+          ]
+        }
+      }
+    }
   ]
 }

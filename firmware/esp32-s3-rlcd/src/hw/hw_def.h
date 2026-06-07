@@ -39,10 +39,14 @@
 #define      HW_CLI_GUI_WIDTH       80
 #define      HW_CLI_GUI_HEIGHT      24
 
+#define _USE_HW_BUTTON
+#define      HW_BUTTON_MAX_CH       BUTTON_PIN_MAX
+
 
 //-- CLI
 //
 #define _USE_CLI_HW_UART            1
+#define _USE_CLI_HW_BUTTON          1
 
 
 #define _HW_DEF_RTOS_THREAD_PRI_CLI           5
@@ -51,5 +55,12 @@
 #define _HW_DEF_RTOS_THREAD_MEM_CLI           (6*1024)
 #define _HW_DEF_RTOS_THREAD_MEM_UART          (2*1024)
 
+
+typedef enum
+{
+  BTN_L,
+  BTN_R,
+  BUTTON_PIN_MAX,  
+} ButtonPinName_t;
 
 #endif

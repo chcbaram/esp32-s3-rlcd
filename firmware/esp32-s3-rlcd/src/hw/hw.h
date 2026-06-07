@@ -13,6 +13,7 @@ extern "C" {
 #include "log.h"
 #include "uart.h"
 #include "cli.h"
+#include "button.h"
 
 bool hwInit(void);
 
