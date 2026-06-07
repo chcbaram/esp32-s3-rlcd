@@ -19,6 +19,7 @@ extern "C" {
 #include "files.h"
 #include "adc.h"
 #include "battery.h"
+#include "lcd.h"
 
 bool hwInit(void);
 

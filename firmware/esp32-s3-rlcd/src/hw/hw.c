@@ -26,9 +26,11 @@ bool hwInit(void)
   buttonInit();
   adcInit();
   batteryInit();
-  
+
   sdInit();
   fatfsInit();
 
+  lcdInit();
+  
   return true;
 }

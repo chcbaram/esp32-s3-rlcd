@@ -94,7 +94,7 @@
 			panel-settings = <0x29>;
 			hpm-gate-waveform = [e5 f6 05 46 77 77 77 77 76 45];
 			lpm-gate-waveform = [05 46 77 77 77 77 76 45];
-			inversion-on;
+			// inversion-on;
 		};
 	};
 };

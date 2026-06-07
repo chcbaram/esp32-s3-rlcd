@@ -48,6 +48,12 @@
 #define _USE_HW_ADC                 
 #define      HW_ADC_MAX_CH          ADC_PIN_MAX
 
+#define _USE_HW_LCD
+#define      HW_LCD_LVGL            1
+#define _USE_HW_ST7306
+#define      HW_LCD_WIDTH           300
+#define      HW_LCD_HEIGHT          400
+
 
 //-- CLI
 //
@@ -56,15 +62,18 @@
 #define _USE_CLI_HW_SD              1
 #define _USE_CLI_HW_FATFS           1
 #define _USE_CLI_HW_ADC             1
+#define _USE_CLI_HW_LOG             1
 
 
 #define _HW_DEF_RTOS_THREAD_PRI_CLI           5
 #define _HW_DEF_RTOS_THREAD_PRI_UART          5
 #define _HW_DEF_RTOS_THREAD_PRI_BATTERY       5
+#define _HW_DEF_RTOS_THREAD_PRI_LCD           5
 
 #define _HW_DEF_RTOS_THREAD_MEM_CLI           (6*1024)
 #define _HW_DEF_RTOS_THREAD_MEM_UART          (2*1024)
 #define _HW_DEF_RTOS_THREAD_MEM_BATTERY       (2*1024)
+#define _HW_DEF_RTOS_THREAD_MEM_LCD           (4*1024)
 
 typedef enum
 {
