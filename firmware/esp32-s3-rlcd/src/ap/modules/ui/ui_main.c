@@ -1,4 +1,6 @@
 #include "ap_def.h"
+#include "network/wifi/wifi.h"
+
 #include <time.h>
 #include <zephyr/posix/sys/time.h>
 
@@ -133,43 +135,89 @@ static void drawFullClockScreen(void)
   }
   localtime_r(&ts.tv_sec, &tm_ref);
 
-
   int   bat_soc   = batteryGetPercent();
   float bat_volts = batteryGetVoltage();
 
+  // -------------------------------------------------------------------------
+  // [추가] 좌측 상단 동적 WiFi 레이아웃 렌더링
+  // -------------------------------------------------------------------------
+  // 시스템의 WiFi 연결 상태 및 IP 주소를 가져오는 함수를 호출한다고 가정합니다.
+  bool        is_wifi_connected = wifiIsConnected();
+  const char *wifi_ip           = wifiGetIPAddress(); 
+  int8_t      wifi_rssi         = wifiGetRssi();
 
-  // 1. 길쭉한 가로형 배터리 몸체 크기 설정 (기존 폭 28 -> 42로 확장)
-  int icon_x = 340; // 400 해상도 우측 끝에 바짝 붙도록 조정
-  int icon_y = 12;  // 상단 마진
-  int icon_w = 42;  // 와이드 가로형 배터리 폭
-  int icon_h = 16;  // 배터리 높이
+  int wifi_x = 10;
+  int wifi_y = 12;
 
-  // 2. 가로형 외곽선 껍데기 그리기 (흰색 빈 사각형)
+  if (is_wifi_connected == false)
+  {
+    // 연결 안 됨: 경고용 적색(red) 또는 흰색으로 메시지 출력
+    lcdPrintf(wifi_x, wifi_y + 2, red, "WiFi Not Connected");
+  }
+  else
+  {
+    // RSSI 수치에 따른 활성화 막대 개수 계산 (0 ~ 4개)
+    int active_bars = 0;
+    if (wifi_rssi >= -55)
+      active_bars = 4; // 신호 매우 강함 (Full)
+    else if (wifi_rssi >= -70)
+      active_bars = 3; // 신호 강함
+    else if (wifi_rssi >= -85)
+      active_bars = 2; // 신호 약함
+    else if (wifi_rssi > -95)
+      active_bars = 1; // 신호 매우 약함
+    else
+      active_bars = 0; // 신호 없음
+
+    int bar_w = 4;     // 막대 두께
+    int bar_g = 2;     // 막대 간격
+
+    // 1번 막대 (가장 낮음): active_bars가 1 이상이면 green, 아니면 gray(비활성 상태 슬롯 표시)
+    uint16_t color_b1 = (active_bars >= 1) ? green : gray;
+    lcdDrawFillRect(wifi_x, wifi_y + 11, bar_w, 5, color_b1);
+
+    // 2번 막대
+    uint16_t color_b2 = (active_bars >= 2) ? green : gray;
+    lcdDrawFillRect(wifi_x + (bar_w + bar_g), wifi_y + 8, bar_w, 8, color_b2);
+
+    // 3번 막대
+    uint16_t color_b3 = (active_bars >= 3) ? green : gray;
+    lcdDrawFillRect(wifi_x + (bar_w + bar_g) * 2, wifi_y + 4, bar_w, 12, color_b3);
+
+    // 4번 막대 (가장 높음)
+    uint16_t color_b4 = (active_bars >= 4) ? green : gray;
+    lcdDrawFillRect(wifi_x + (bar_w + bar_g) * 3, wifi_y, bar_w, 16, color_b4);
+
+    // 안테나 아이콘 우측에 IP 주소 연동 출력
+    lcdPrintf(wifi_x + 28, wifi_y + 2, white, "%d %s", wifi_rssi, wifi_ip);
+  }
+
+  // -------------------------------------------------------------------------
+  // 우측 상단 가로형 배터리 레이아웃 (기존 유지)
+  // -------------------------------------------------------------------------
+  int icon_x = 340; 
+  int icon_y = 12;  
+  int icon_w = 42;  
+  int icon_h = 16;  
+
   lcdDrawRect(icon_x, icon_y, icon_w, icon_h, white);
-
-  // 3. 배터리 우측 단자 코 그리기 (가로형 돌출부 정중앙 정렬)
   lcdDrawFillRect(icon_x + icon_w, icon_y + 5, 3, 6, white);
 
-  // 4. 와이드 배터리 내부 잔량 게이지 채우기 (2픽셀 안쪽 인셋 마진)
-  int gauge_max_w = icon_w - 4; // 최대 충전 폭 (38 픽셀로 대폭 정밀화)
-  int gauge_h     = icon_h - 4; // 게이지 높이 (12 픽셀)
-  int gauge_w     = (gauge_max_w * bat_soc) / 100; // 가로 비율 연산
+  int gauge_max_w = icon_w - 4; 
+  int gauge_h     = icon_h - 4; 
+  int gauge_w     = (gauge_max_w * bat_soc) / 100; 
 
   if (gauge_w > 0)
   {
-    // 20% 이하 경고 적색, 평소에는 녹색 메인 컬러 가동
     uint16_t gauge_color = (bat_soc <= 20) ? red : green;
     lcdDrawFillRect(icon_x + 2, icon_y + 2, gauge_w, gauge_h, gauge_color);
   }
 
-  // 5. 와이드 배터리 아이콘 좌측에 수치 정보 일렬 정렬 (아이콘 크기가 커져 좌측으로 더 전진)
-  // 출력 결과 형태: "85%  3.92V  [ 🔋▮▮▮▮    +]"
-  lcdPrintf(icon_x - 115, icon_y + 2, white, "%d%% %.2fV", bat_soc, (double)bat_volts);
+  lcdPrintf(icon_x - 100, icon_y + 2, white, "%d%% %.2fV", bat_soc, (double)bat_volts);
 
-
-  // 1. [날짜 + 요일] 400x300 가로/세로 정중앙 튜닝 (크기: 28.0f)
-  // 포맷: "2026-06-07(일)" (총 14글자)
-  // 28px 폰트의 가로 점유 폭을 계산하여 400 해상도 중심에 오도록 X를 60으로 이동
+  // -------------------------------------------------------------------------
+  // 중앙 메인 클락 표시 영역 (기존 유지)
+  // -------------------------------------------------------------------------
   int date_y = 100 - 20;
   lcdPrintfResize(60 + 20, date_y, white, 32.0f, "%04d-%02d-%02d (%s)",
                   tm_ref.tm_year + 1900,
@@ -177,9 +225,6 @@ static void drawFullClockScreen(void)
                   tm_ref.tm_mday,
                   wday_str[tm_ref.tm_wday]);
 
-  // 2. [시간:분:초] 400x300 가로/세로 정중앙 튜닝 (크기: 64.0f)
-  // 포맷: "HH:MM:SS" (총 8글자)
-  // 64px 대형 폰트 8글자가 400 해상도 한가운데 정확히 대칭 배정되도록 X를 48로 정밀 튜닝
   int time_y = 155 - 20; 
   lcdPrintfResize(48 + 20, time_y, white, 64.0f, "%02d:%02d:%02d",
                   tm_ref.tm_hour,

@@ -329,6 +329,56 @@ const char *wifiGetName(void)
   return wifi_nvs.name;
 }
 
+const char *wifiGetIPAddress(void)
+{
+  static char    ip_str[16] = "0.0.0.0";
+  struct net_if *iface      = net_if_get_default();
+
+  if (iface != NULL && is_connected == true)
+  {
+    // DHCP를 통해 정상적으로 IP가 Bound(할당)되었는지 확인 후 변환
+    if (iface->config.dhcpv4.state == NET_DHCPV4_BOUND)
+    {
+      net_addr_ntop(AF_INET, &iface->config.dhcpv4.requested_ip, ip_str, sizeof(ip_str));
+    }
+  }
+  else
+  {
+    // 연결이 끊어진 경우 버퍼 초기화
+    strncpy(ip_str, "0.0.0.0", sizeof(ip_str));
+  }
+
+  return ip_str;
+}
+
+#if defined(CONFIG_WIFI_ESP32)
+/**
+ * @brief 현재 연결된 AP의 RSSI(신호 감도)를 반환합니다.
+ * @return int8_t RSSI 값 (dBm 단위, 미연결 시 -100)
+ */
+int8_t wifiGetRssi(void)
+{
+  if (is_connected == false)
+  {
+    return -100;
+  }
+
+  wifi_ap_record_t ap_info;
+  
+  if (esp_wifi_sta_get_ap_info(&ap_info) == ESP_OK)
+  {
+    return ap_info.rssi;
+  }
+
+  return -100;
+}
+#else
+int8_t wifiGetRssi(void)
+{
+  return is_connected ? -60 : -100;
+}
+#endif
+
 void wifiThread(void *p1, void *p2, void *p3)
 {
   k_msleep(1000);

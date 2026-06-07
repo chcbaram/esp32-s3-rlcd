@@ -16,6 +16,8 @@ bool wifiIsConnected(void);
 bool wifiWrite(void *p_data, uint32_t length);
 bool wifiPrintf(const char *fmt, ...);
 const char *wifiGetName(void);
+const char *wifiGetIPAddress(void);
+int8_t wifiGetRssi(void);
 
 #ifdef __cplusplus
 }
