@@ -237,6 +237,31 @@ static void drawFullClockScreen(void)
                   tm_ref.tm_hour,
                   tm_ref.tm_min,
                   tm_ref.tm_sec);
+
+// -------------------------------------------------------------------------
+  // [수정] 하단 온습도 표시 영역 (정수 표시 및 중간 크기 적용)
+  // -------------------------------------------------------------------------
+  // 글자 크기가 48.0f로 줄어들었으므로, 시각적 균형을 위해 Y축을 215 - 20으로 미세 조정합니다.
+  int th_y = 215 - 5; 
+  shtc3_info_t shtc3_info;
+
+  if (shtc3IsInit() && shtc3GetInfo(0, &shtc3_info))
+  {
+    // 1. 소수점 제외를 위해 반올림 처리 (float -> int 캐스팅 직전 반올림)
+    int temp_int = (int)(shtc3_info.temp_filtered + 0.5f);
+    int humid_int = (int)(shtc3_info.humidity_filtered + 0.5f);
+
+    // 2. 날짜(32.0f)와 시간(64.0f)의 중간 크기인 48.0f 적용
+    // 소수점이 없으므로 %d 지시자를 사용하여 깔끔하게 정수로 출력합니다.
+    lcdPrintfResize(48 + 20, th_y, white, 48.0f, "%dC     %d%%", 
+                    temp_int, 
+                    humid_int);
+  }
+  else
+  {
+    // 센서 에러 시 출력 크기도 48.0f로 통일
+    lcdPrintfResize(48 + 20, th_y, gray, 48.0f, "Sensor Error");
+  }
 }
 
 /**
