@@ -20,6 +20,7 @@ extern "C" {
 #include "adc.h"
 #include "battery.h"
 #include "lcd.h"
+#include "shtc3.h"
 
 bool hwInit(void);
 

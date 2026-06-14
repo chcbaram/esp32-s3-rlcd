@@ -37,10 +37,5 @@ target_include_directories(app PRIVATE
   src/lib
 )
 
-# zephyr_compiler_options(-fsingle-precision-constant)
-# zephyr_cc_option(-fsingle-precision-constant)
-
-target_compile_options(app PRIVATE -fsingle-precision-constant)
-
 zephyr_linker_sources(DATA_SECTIONS src/bsp/ldscript/ldscript.ld)
 

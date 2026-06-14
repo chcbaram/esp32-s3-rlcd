@@ -55,6 +55,9 @@
 #define      HW_LCD_WIDTH           400
 #define      HW_LCD_HEIGHT          300
 
+#define _USE_HW_SHTC3
+#define      HW_SHTC3_MAX_CH        1
+
 
 //-- CLI
 //
@@ -64,6 +67,7 @@
 #define _USE_CLI_HW_FATFS           1
 #define _USE_CLI_HW_ADC             1
 #define _USE_CLI_HW_LOG             1
+#define _USE_CLI_HW_SHTC3           1
 
 
 #define _HW_DEF_RTOS_THREAD_PRI_CLI           5

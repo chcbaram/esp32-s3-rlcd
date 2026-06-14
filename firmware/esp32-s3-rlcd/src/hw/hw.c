@@ -29,7 +29,8 @@ bool hwInit(void)
 
   sdInit();
   fatfsInit();
-
+  shtc3Init();
+  
   lcdInit();
   
   return true;
