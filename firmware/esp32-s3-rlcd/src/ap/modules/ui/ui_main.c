@@ -253,9 +253,8 @@ static void drawFullClockScreen(void)
 
     // 2. 날짜(32.0f)와 시간(64.0f)의 중간 크기인 48.0f 적용
     // 소수점이 없으므로 %d 지시자를 사용하여 깔끔하게 정수로 출력합니다.
-    lcdPrintfResize(48 + 20, th_y, white, 48.0f, "%dC     %d%%", 
-                    temp_int, 
-                    humid_int);
+    lcdPrintfResize(48 + 20, th_y, white, 48.0f, "%dC", temp_int);
+    lcdPrintfResize(48 + 200, th_y, white, 48.0f, "%d%%", humid_int);
   }
   else
   {
