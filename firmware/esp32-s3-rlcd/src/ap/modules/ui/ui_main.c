@@ -1,5 +1,6 @@
 #include "ap_def.h"
 #include "network/wifi/wifi.h"
+#include "power/power.h"
 
 #include <time.h>
 #include <zephyr/posix/sys/time.h>
@@ -134,6 +135,7 @@ static uint32_t uiDrawSignature(void)
   sig = sig * 33 ^ (uint32_t)uiWifiBars(wifiGetRssi());
   sig = sig * 33 ^ (uint32_t)(selected_menu + 1);
   sig = sig * 33 ^ (uint32_t)current_selection;
+  sig = sig * 33 ^ (uint32_t)powerStayAwake();
   return sig;
 }
 
@@ -309,6 +311,12 @@ static void drawFullClockScreen(void)
     lcdPrintfRect(0, th_y, LCD_WIDTH, 48, gray, 48.0f / 16.0f, LCD_ALIGN_H_CENTER,
                   "Sensor Error");
   }
+
+  // 디버그(계속 깨어있기) 모드일 때 화면에 작게 표시
+  if (powerStayAwake())
+  {
+    lcdPrintf(8, LCD_HEIGHT - 18, red, "디버깅 모드");
+  }
 }
 
 /**
@@ -384,29 +392,10 @@ static void uiThread(void const *arg)
 
   while (1)
   {
-    // [0번 버튼]: 커서 다운 이동 또는 시계 화면 탈출
-    bool curr_btn_down = buttonGetPressed(0);
-    if (curr_btn_down == true && prev_btn_down == false)
-    {
-      if (selected_menu == MENU_CLOCK_INDEX)
-      {
-        selected_menu = MENU_NONE;
-      }
-      else
-      {
-        current_selection = (current_selection + 1) % MENU_COUNT;
-        selected_menu     = MENU_NONE;
-      }
-    }
-    prev_btn_down = curr_btn_down;
-
-    // [1번 버튼]: 메뉴 확정 선택
-    bool curr_btn_select = buttonGetPressed(1);
-    if (curr_btn_select == true && prev_btn_select == false)
-    {
-      selected_menu = current_selection;
-    }
-    prev_btn_select = curr_btn_select;
+    // 딥슬립 시계 모드에서는 버튼을 화면(웨이크/디버그)에만 사용하고 메뉴 전환은 하지 않는다.
+    // (USER 버튼 롱프레스 = 디버그 모드 토글은 apMain 에서 처리)
+    (void)prev_btn_down;
+    (void)prev_btn_select;
 
     if (lcdDrawAvailable() == true)
     {

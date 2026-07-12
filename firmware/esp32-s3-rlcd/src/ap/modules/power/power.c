@@ -24,6 +24,12 @@ static RTC_NOINIT_ATTR uint32_t power_boot_magic;
 // NS4150B 스피커 앰프 셧다운 제어 : PA_CTRL = GPIO46 (LOW = shutdown)
 #define PA_CTRL_GPIO  46
 
+// 딥슬립 버튼 웨이크 : USER 버튼 = GPIO18 (외부 풀업 R17 있어 안정적)
+#define WAKE_BUTTON_GPIO  18
+
+
+static volatile bool stay_awake = false;
+
 
 static bool powerInit(void);
 static void cliPower(cli_args_t *args);
@@ -48,7 +54,20 @@ void powerDeepSleep(uint32_t sec)
   if (sec > 0)
     esp_sleep_enable_timer_wakeup((uint64_t)sec * 1000000ULL);
 
+  // USER 버튼(GPIO18)을 누르면(LOW) 딥슬립에서 깨어난다.
+  esp_sleep_enable_ext1_wakeup(1ULL << WAKE_BUTTON_GPIO, ESP_EXT1_WAKEUP_ANY_LOW);
+
   sys_poweroff();
+}
+
+void powerSetStayAwake(bool enable)
+{
+  stay_awake = enable;
+}
+
+bool powerStayAwake(void)
+{
+  return stay_awake;
 }
 
 void powerSleepToNextMinute(void)
