@@ -21,6 +21,7 @@ extern "C" {
 #include "battery.h"
 #include "lcd.h"
 #include "shtc3.h"
+#include "rtc.h"
 
 bool hwInit(void);
 

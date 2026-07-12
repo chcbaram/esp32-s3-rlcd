@@ -1,5 +1,8 @@
 #include "wifi.h"
 #include "cli.h"
+#include "rtc.h"
+
+#include <time.h>
 
 #include <zephyr/kernel.h>
 #include <zephyr/net/net_core.h>
@@ -46,7 +49,7 @@ static void wifiMgmtEventHandler(struct net_mgmt_event_callback *cb, uint64_t mg
 static void ipMgmtEventHandler(struct net_mgmt_event_callback *cb, uint64_t mgmtEvent, struct net_if *iface);
 static void syncTimeSNTP(void);
 
-K_THREAD_STACK_DEFINE(wifi_thread_stack, 2048);
+K_THREAD_STACK_DEFINE(wifi_thread_stack, 8192);
 static struct k_thread wifi_thread_data;
 static struct k_sem    wifi_connected_sem;
 static struct k_sem    ip_obtained_sem;
@@ -56,6 +59,10 @@ static struct net_mgmt_event_callback dhcp_cb;
 
 static uint16_t           retry_num    = 0;
 static bool               is_connected = false;
+static bool               sync_done    = false;
+
+#define WIFI_SYNC_HOUR        4          // 매일 이 시각(정각)에 SNTP 재동기
+#define WIFI_TIME_VALID_EPOCH 1600000000LL // 이 값보다 작으면 시각 미설정으로 간주
 static int                sock         = -1;
 static struct sockaddr_in dest_addr; // 순정 BSD sockaddr_in 사용
 
@@ -119,6 +126,10 @@ static int wifiSettingsSet(const char *name, size_t len, settings_read_cb read_c
       return 0;
     }
   }
+  if (settings_name_steq(name, "last_sync", &next) && !next)
+  {
+    return 0; // 이전 버전 잔재 키 : 무시하여 로드 에러 방지
+  }
   return -ENOENT;
 }
 
@@ -159,11 +170,16 @@ static void ipMgmtEventHandler(struct net_mgmt_event_callback *cb, uint64_t mgmt
 
 bool wifiInitSTA(void)
 {
-  net_mgmt_init_event_callback(&wifi_cb, wifiMgmtEventHandler, NET_EVENT_WIFI_CONNECT_RESULT | NET_EVENT_WIFI_DISCONNECT_RESULT);
-  net_mgmt_add_event_callback(&wifi_cb);
+  static bool cb_registered = false;
+  if (!cb_registered)
+  {
+    net_mgmt_init_event_callback(&wifi_cb, wifiMgmtEventHandler, NET_EVENT_WIFI_CONNECT_RESULT | NET_EVENT_WIFI_DISCONNECT_RESULT);
+    net_mgmt_add_event_callback(&wifi_cb);
 
-  net_mgmt_init_event_callback(&dhcp_cb, ipMgmtEventHandler, NET_EVENT_IPV4_DHCP_BOUND);
-  net_mgmt_add_event_callback(&dhcp_cb);
+    net_mgmt_init_event_callback(&dhcp_cb, ipMgmtEventHandler, NET_EVENT_IPV4_DHCP_BOUND);
+    net_mgmt_add_event_callback(&dhcp_cb);
+    cb_registered = true;
+  }
 
   struct net_if *iface = net_if_get_default();
   if (!iface)
@@ -203,9 +219,9 @@ bool wifiInitSTA(void)
   }
 #endif
 
-  if (k_sem_take(&wifi_connected_sem, K_MSEC(15000)) == 0)
+  if (k_sem_take(&wifi_connected_sem, K_MSEC(8000)) == 0)
   {
-    if (k_sem_take(&ip_obtained_sem, K_MSEC(15000)) == 0)
+    if (k_sem_take(&ip_obtained_sem, K_MSEC(8000)) == 0)
     {
       // DHCP IP 바인딩이 성공 완료된 시점에 SNTP 서버 요청 연동
       syncTimeSNTP();      
@@ -279,6 +295,7 @@ static void syncTimeSNTP(void)
   if (clock_settime(CLOCK_REALTIME, &ts) == 0)
   {
     printk("[OK] Network time synchronization success! (Epoch: %lld)\n", (long long)ts.tv_sec);
+    rtcSyncRtcFromSystem();
   }
   else
   {
@@ -419,53 +436,61 @@ int8_t wifiGetRssi(void)
  */
 void wifiThread(void *p1, void *p2, void *p3)
 {
-  // 부팅 직후 안정화를 위한 초기 딜레이
+  // 딥슬립 듀티사이클 : 매 웨이크(재부팅)마다 실행된다. 아래 조건에서만 WiFi 를 올려
+  // SNTP 동기하고, 그 외에는 즉시 반환해 빠르게 다시 슬립한다.
+  //  - 매일 WIFI_SYNC_HOUR 정각 (정기 보정)
+  //  - 시각이 아직 설정되지 않았을 때 : 10분에 1회만 재시도(동기 실패해도 전력 폭주 방지)
+  struct timespec now;
+  struct tm       tm_now;
+  clock_gettime(CLOCK_REALTIME, &now);
+  localtime_r(&now.tv_sec, &tm_now);
+
+  bool need_sync = (tm_now.tm_hour == WIFI_SYNC_HOUR && tm_now.tm_min == 0) ||
+                   (now.tv_sec < WIFI_TIME_VALID_EPOCH && (tm_now.tm_min % 10) == 0);
+
+  if (!need_sync)
+  {
+    sync_done = true;
+    return;
+  }
+
+  // 동기할 때만 네트워크 스택 안정화 대기
   k_msleep(1000);
 
-  while (1)
+  printk("\n[=== WiFi & SNTP Sync ===]\n");
+
+  is_connected = wifiInitSTA();
+
+  if (is_connected)
   {
-    printk("\n[=== Wake up: Starting Hourly Wi-Fi & SNTP Sync ===]\n");
+    printk("[OK] Wi-Fi Link & SNTP Sync Complete.\n");
 
-    // 1. Wi-Fi 켜고 AP 연결 및 IP 할당 대기 (내부에서 syncTimeSNTP()까지 완료됨)
-    is_connected = wifiInitSTA();
+    dest_addr.sin_family = AF_INET;
+    dest_addr.sin_port   = htons(wifi_nvs.dest_port);
+    inet_pton(AF_INET, wifi_nvs.dest_ip, &dest_addr.sin_addr);
 
-    if (is_connected)
+    sock = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
+    if (sock >= 0)
     {
-      printk("[OK] Wi-Fi Link & SNTP Sync Complete.\n");
-
-      // 2. (옵션) UDP 소켓 통신이나 필요한 무선 데이터 송수신 처리 영역
-      dest_addr.sin_family = AF_INET;
-      dest_addr.sin_port   = htons(wifi_nvs.dest_port);
-      inet_pton(AF_INET, wifi_nvs.dest_ip, &dest_addr.sin_addr);
-
-      sock = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
-      if (sock >= 0)
-      {
-        struct timeval timeout = {.tv_sec = 5, .tv_usec = 0};
-        setsockopt(sock, SOL_SOCKET, SO_RCVTIMEO, &timeout, sizeof(timeout));
-        printk("[OK] Socket opened for quick session.\n");
-
-        // 여기서 동기화 성공 여부나 배터리 상태 등을 서버로 하트비트 전송 가능
-        wifiPrintf("ESP32-S3 Synced. SoC: %d%%\n", batteryGetPercent());
-
-        // 소켓 작업이 끝나면 잠시 후 세션 닫기
-        k_msleep(500);
-      }
+      struct timeval timeout = {.tv_sec = 5, .tv_usec = 0};
+      setsockopt(sock, SOL_SOCKET, SO_RCVTIMEO, &timeout, sizeof(timeout));
+      wifiPrintf("ESP32-S3 Synced. SoC: %d%%\n", batteryGetPercent());
+      k_msleep(500);
     }
-    else
-    {
-      printk("[E_] Wi-Fi or SNTP Sync failed in this cycle.\n");
-    }
-
-    // 3. 무선 랜 비활성화 및 소켓 해제 (절전 모드 진입)
-    printk("[  ] Entering RF Power Saving Mode...\n");
-    wifiDisconnectSTA();
-
-    // 4. 정확히 1시간(60분) 동안 스레드를 슬립 상태로 전환
-    // Zephyr 커널은 이 스레드를 멈추고 시스템을 저전력(Tickless Idle) 모드로 유도합니다.
-    printk("[OK] Wi-Fi Sleep. Next sync in 1 hour.\n");
-    k_sleep(K_HOURS(1));
   }
+  else
+  {
+    printk("[E_] Wi-Fi or SNTP Sync failed.\n");
+  }
+
+  wifiDisconnectSTA();
+
+  sync_done = true;
+}
+
+bool wifiSyncDone(void)
+{
+  return sync_done;
 }
 
 // CLI 인터페이스 제어 셋
@@ -510,6 +535,14 @@ void cliCmd(cli_args_t *args)
 
       delay(1000);
     }
+    ret = true;
+  }
+
+  if (args->argc == 1 && args->isStr(0, "connect"))
+  {
+    cliPrintf("connecting to '%s' ...\n", wifi_nvs.wifi_ssid);
+    is_connected = wifiInitSTA();
+    cliPrintf("result : %s\n", is_connected ? "CONNECTED" : "FAILED");
     ret = true;
   }
 
@@ -573,7 +606,8 @@ void cliCmd(cli_args_t *args)
     cliPrintf("wifi info\n");
     cliPrintf("wifi reset\n");
     cliPrintf("wifi time\n");
-    cliPrintf("wifi sntp\n");    
+    cliPrintf("wifi connect\n");
+    cliPrintf("wifi sntp\n");
     cliPrintf("wifi name [name]\n");
     cliPrintf("wifi ssid [ssid]\n");
     cliPrintf("wifi pass [pass]\n");

@@ -4,9 +4,10 @@
 #include <time.h>
 #include <zephyr/posix/sys/time.h>
 
-#define MENU_NONE        (-1)
-#define MENU_CLOCK_INDEX (MENU_COUNT - 1)
-#define UI_DELAY_MS      5
+#define MENU_NONE            (-1)
+#define MENU_CLOCK_INDEX     (MENU_COUNT - 1)
+#define UI_DELAY_MS          20
+#define UI_SENSOR_REFRESH_MS 10000
 
 typedef enum
 {
@@ -29,6 +30,9 @@ typedef struct
 
 static bool uiInit(void);
 static void uiThread(void const *arg);
+static bool uiSensorSample(shtc3_info_t *p_info);
+static int  uiWifiBars(int8_t rssi);
+static uint32_t uiDrawSignature(void);
 static void drawMenuSysInfo(void);
 static void drawMenuLedCtrl(void);
 static void drawMenuSensorStatus(void);
@@ -53,11 +57,18 @@ const menu_item_t menu_table[] = {
 
 // UI 런타임 상태 관리 변수
 int current_selection = MENU_SYS_INFO;
-int selected_menu     = MENU_NONE;
+int selected_menu     = MENU_CLOCK_INDEX; // 부팅 시 시계 화면을 기본으로 표시
 
 // 버튼 상태 감지 변수
 bool prev_btn_down   = false;
 bool prev_btn_select = false;
+
+// 화면 갱신 최소화용 상태 (변경 시에만 재렌더)
+static shtc3_info_t ui_sensor;
+static bool         ui_sensor_valid = false;
+static uint32_t     ui_sensor_time  = 0;
+static uint32_t     ui_draw_sig     = 0;
+static bool         ui_force_draw   = true;
 
 MODULE_DEF(ui){
   .name     = "ui",
@@ -78,6 +89,52 @@ static bool uiInit(void)
   logPrintf("[%s] uiInit()\n", ret ? "OK" : "E_");
 
   return ret;
+}
+
+static bool uiSensorSample(shtc3_info_t *p_info)
+{
+  if (!ui_sensor_valid || millis() - ui_sensor_time >= UI_SENSOR_REFRESH_MS)
+  {
+    if (shtc3IsInit() && shtc3GetInfo(0, &ui_sensor))
+      ui_sensor_valid = true;
+    ui_sensor_time = millis();
+  }
+  *p_info = ui_sensor;
+  return ui_sensor_valid;
+}
+
+static int uiWifiBars(int8_t rssi)
+{
+  if (rssi >= -55) return 4;
+  if (rssi >= -70) return 3;
+  if (rssi >= -85) return 2;
+  if (rssi >  -95) return 1;
+  return 0;
+}
+
+static uint32_t uiDrawSignature(void)
+{
+  struct timespec ts;
+  struct tm       tm_ref;
+  shtc3_info_t    sensor;
+  uint32_t        sig = 5381;
+
+  clock_gettime(CLOCK_REALTIME, &ts);
+  localtime_r(&ts.tv_sec, &tm_ref);
+  uiSensorSample(&sensor);
+
+  sig = sig * 33 ^ (uint32_t)tm_ref.tm_sec;
+  sig = sig * 33 ^ (uint32_t)tm_ref.tm_min;
+  sig = sig * 33 ^ (uint32_t)tm_ref.tm_hour;
+  sig = sig * 33 ^ (uint32_t)tm_ref.tm_yday;
+  sig = sig * 33 ^ (uint32_t)(int)(sensor.temp_filtered + 0.5f);
+  sig = sig * 33 ^ (uint32_t)(int)(sensor.humidity_filtered + 0.5f);
+  sig = sig * 33 ^ (uint32_t)batteryGetPercent();
+  sig = sig * 33 ^ (uint32_t)wifiIsConnected();
+  sig = sig * 33 ^ (uint32_t)uiWifiBars(wifiGetRssi());
+  sig = sig * 33 ^ (uint32_t)(selected_menu + 1);
+  sig = sig * 33 ^ (uint32_t)current_selection;
+  return sig;
 }
 
 /**
@@ -180,14 +237,9 @@ static void drawFullClockScreen(void)
   else
   {
     // [상태 C] 현재 실시간으로 무선 신호가 살아있고 연결된 상태
-    int active_bars = 0;
-    if (wifi_rssi >= -55)       active_bars = 4; 
-    else if (wifi_rssi >= -70)  active_bars = 3; 
-    else if (wifi_rssi >= -85)  active_bars = 2; 
-    else if (wifi_rssi > -95)   active_bars = 1; 
-    else                        active_bars = 0; 
+    int active_bars = uiWifiBars(wifi_rssi);
 
-    int bar_w = 4;     
+    int bar_w = 4;
     int bar_g = 2;     
 
     lcdDrawFillRect(wifi_x, wifi_y + 11, bar_w, 5, (active_bars >= 1) ? green : gray);
@@ -223,43 +275,39 @@ static void drawFullClockScreen(void)
   lcdPrintf(icon_x - 100, icon_y + 2, white, "%d%% %.2fV", bat_soc, (double)bat_volts);
 
   // -------------------------------------------------------------------------
-  // 중앙 메인 클락 표시 영역 (기존 유지)
+  // 중앙 시계 영역 : 날짜 / 시간 / 온습도 (모두 가로 중앙 정렬)
   // -------------------------------------------------------------------------
-  int date_y = 100 - 20;
-  lcdPrintfResize(60 + 20, date_y, white, 32.0f, "%04d-%02d-%02d (%s)",
-                  tm_ref.tm_year + 1900,
-                  tm_ref.tm_mon + 1,
-                  tm_ref.tm_mday,
-                  wday_str[tm_ref.tm_wday]);
+  int date_y = 48;
+  lcdPrintfRect(0, date_y, LCD_WIDTH, 32, white, 32.0f / 16.0f, LCD_ALIGN_H_CENTER,
+                "%04d-%02d-%02d (%s)",
+                tm_ref.tm_year + 1900,
+                tm_ref.tm_mon + 1,
+                tm_ref.tm_mday,
+                wday_str[tm_ref.tm_wday]);
 
-  int time_y = 155 - 20; 
-  lcdPrintfResize(48 + 20, time_y, white, 64.0f, "%02d:%02d:%02d",
-                  tm_ref.tm_hour,
-                  tm_ref.tm_min,
-                  tm_ref.tm_sec);
+  // 딥슬립은 분 단위 갱신이라 초는 생략하고 한글 "N시 N분" 을 가장 크게 표시
+  // (폰트 리사이즈 버퍼 한계상 최대 64px)
+  int time_y = 112;
+  lcdPrintfRect(0, time_y, LCD_WIDTH, 64, white, 64.0f / 16.0f, LCD_ALIGN_H_CENTER,
+                "%d시 %d분",
+                tm_ref.tm_hour,
+                tm_ref.tm_min);
 
-// -------------------------------------------------------------------------
-  // [수정] 하단 온습도 표시 영역 (정수 표시 및 중간 크기 적용)
-  // -------------------------------------------------------------------------
-  // 글자 크기가 48.0f로 줄어들었으므로, 시각적 균형을 위해 Y축을 215 - 20으로 미세 조정합니다.
-  int th_y = 215 - 5; 
+  int          th_y = 212;
   shtc3_info_t shtc3_info;
 
-  if (shtc3IsInit() && shtc3GetInfo(0, &shtc3_info))
+  if (uiSensorSample(&shtc3_info))
   {
-    // 1. 소수점 제외를 위해 반올림 처리 (float -> int 캐스팅 직전 반올림)
-    int temp_int = (int)(shtc3_info.temp_filtered + 0.5f);
+    int temp_int  = (int)(shtc3_info.temp_filtered + 0.5f);
     int humid_int = (int)(shtc3_info.humidity_filtered + 0.5f);
 
-    // 2. 날짜(32.0f)와 시간(64.0f)의 중간 크기인 48.0f 적용
-    // 소수점이 없으므로 %d 지시자를 사용하여 깔끔하게 정수로 출력합니다.
-    lcdPrintfResize(48 + 20, th_y, white, 48.0f, "%dC", temp_int);
-    lcdPrintfResize(48 + 200, th_y, white, 48.0f, "%d%%", humid_int);
+    lcdPrintfRect(0, th_y, LCD_WIDTH, 48, white, 48.0f / 16.0f, LCD_ALIGN_H_CENTER,
+                  "%dC    %d%%", temp_int, humid_int);
   }
   else
   {
-    // 센서 에러 시 출력 크기도 48.0f로 통일
-    lcdPrintfResize(48 + 20, th_y, gray, 48.0f, "Sensor Error");
+    lcdPrintfRect(0, th_y, LCD_WIDTH, 48, gray, 48.0f / 16.0f, LCD_ALIGN_H_CENTER,
+                  "Sensor Error");
   }
 }
 
@@ -332,7 +380,7 @@ static void uiThread(void const *arg)
   moduleIsReady();
   logPrintf("[%s] Thread Started : UI\n", init_ret ? "OK" : "E_");
 
-  delay(2000);
+  delay(5);
 
   while (1)
   {
@@ -362,21 +410,26 @@ static void uiThread(void const *arg)
 
     if (lcdDrawAvailable() == true)
     {
-      lcdClearBuffer(black);
+      uint32_t sig = uiDrawSignature();
 
-      if (selected_menu == MENU_NONE)
+      if (ui_force_draw || sig != ui_draw_sig)
       {
-        drawMainMenuPlatform();
-      }
-      else
-      {
-        if (menu_table[selected_menu].draw_func != NULL)
+        ui_draw_sig   = sig;
+        ui_force_draw = false;
+
+        lcdClearBuffer(black);
+
+        if (selected_menu == MENU_NONE)
+        {
+          drawMainMenuPlatform();
+        }
+        else if (menu_table[selected_menu].draw_func != NULL)
         {
           menu_table[selected_menu].draw_func();
         }
-      }
 
-      lcdRequestDraw();
+        lcdRequestDraw();
+      }
     }
     delay(UI_DELAY_MS);
   }

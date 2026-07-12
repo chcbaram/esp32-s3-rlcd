@@ -13,6 +13,7 @@ extern "C" {
 
 bool wifiInit(void);
 bool wifiIsConnected(void);
+bool wifiSyncDone(void);
 bool wifiWrite(void *p_data, uint32_t length);
 bool wifiPrintf(const char *fmt, ...);
 const char *wifiGetName(void);

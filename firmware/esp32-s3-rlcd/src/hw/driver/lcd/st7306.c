@@ -71,8 +71,8 @@ bool st7306Reset(void)
   desc.height   = ST7306_HEIGHT;
   desc.pitch    = ST7306_WIDTH;
 
-  st7306Fill(black);
-
+  // 초기화 시 검정으로 지우지 않는다. 첫 화면 전송이 곧바로 실제 컨텐츠(시계)가 되도록 해
+  // 부팅 시 "검정 프레임 → 컨텐츠" 2단계 깜빡임을 1단계로 줄인다.
   display_blanking_off(display_dev);
 
   return true;

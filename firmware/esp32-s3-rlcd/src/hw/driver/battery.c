@@ -5,7 +5,8 @@
 #include "cli.h"
 
 #define BAT_ADC_MAX_COUNT     10
-#define BAT_FILTER_THRESHOLD  100  // 퍼센트 변경 확정을 위한 카운트 (약 1초)
+#define BAT_SAMPLE_PERIOD_MS  1000
+#define BAT_FILTER_THRESHOLD  5    // 퍼센트 변경 확정까지 필요한 연속 샘플 수
 
 #ifdef _USE_HW_RTOS
 #define lock()      k_mutex_lock(&mutex_lock, K_FOREVER);
@@ -219,7 +220,7 @@ void batteryThread(void const *arg)
         break;
     }
 
-    delay(10); // 10ms 주기 구동 (100번 카운트 시 약 1초 소요)
+    delay(BAT_SAMPLE_PERIOD_MS);
   }
 }
 

@@ -1,0 +1,5 @@
+/* 개발용 devicetree 오버레이 : 저전력 기본에서 비활성한 노드를 복구 */
+
+&esp32_bt_hci {
+	status = "okay";
+};

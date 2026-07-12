@@ -13,9 +13,13 @@
 
 
 #define _USE_HW_RTOS
+#if defined(CONFIG_DISK_DRIVER_SDMMC)
 #define _USE_HW_SD
+#endif
+#if defined(CONFIG_FAT_FILESYSTEM_ELM)
 #define _USE_HW_FATFS
 #define _USE_HW_FILES
+#endif
 #define _USE_HW_BATTERY
 
 // #define _USE_HW_LED
@@ -50,13 +54,15 @@
 
 #define _USE_HW_LCD
 #define      HW_LCD_LVGL            1
-#define      HW_LCD_LOGO            1
+#define      HW_LCD_LOGO            0
 #define _USE_HW_ST7306
 #define      HW_LCD_WIDTH           400
 #define      HW_LCD_HEIGHT          300
 
 #define _USE_HW_SHTC3
 #define      HW_SHTC3_MAX_CH        1
+
+#define _USE_HW_RTC
 
 
 //-- CLI
@@ -68,6 +74,7 @@
 #define _USE_CLI_HW_ADC             1
 #define _USE_CLI_HW_LOG             1
 #define _USE_CLI_HW_SHTC3           1
+#define _USE_CLI_HW_RTC             1
 
 
 #define _HW_DEF_RTOS_THREAD_PRI_CLI           5
