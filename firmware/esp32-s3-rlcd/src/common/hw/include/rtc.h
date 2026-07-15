@@ -35,6 +35,7 @@ typedef struct
 
 bool rtcInit(void);
 bool rtcIsInit(void);
+bool rtcIsColdBoot(void);
 bool rtcSyncSystemFromRtc(void);
 bool rtcSyncRtcFromSystem(void);
 bool rtcGetInfo(rtc_info_t *rtc_info);

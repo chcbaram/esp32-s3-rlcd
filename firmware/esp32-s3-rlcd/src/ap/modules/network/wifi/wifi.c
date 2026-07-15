@@ -445,7 +445,8 @@ void wifiThread(void *p1, void *p2, void *p3)
   clock_gettime(CLOCK_REALTIME, &now);
   localtime_r(&now.tv_sec, &tm_now);
 
-  bool need_sync = (tm_now.tm_hour == WIFI_SYNC_HOUR && tm_now.tm_min == 0) ||
+  bool need_sync = rtcIsColdBoot() ||                                        // 전원인가 시 즉시 동기
+                   (tm_now.tm_hour == WIFI_SYNC_HOUR && tm_now.tm_min == 0) || // 매일 정각 보정
                    (now.tv_sec < WIFI_TIME_VALID_EPOCH && (tm_now.tm_min % 10) == 0);
 
   if (!need_sync)
